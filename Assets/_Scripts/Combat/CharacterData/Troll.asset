@@ -23,5 +23,5 @@ MonoBehaviour:
   magicDefense: 8
   speed: 5
   luck: 4
-  characterPrefab: {fileID: 0}
+  characterPrefab: {fileID: 4052718656745949175, guid: 8208add5c7aa9934da17231671f9d0d5, type: 3}
   portrait: {fileID: 0}
