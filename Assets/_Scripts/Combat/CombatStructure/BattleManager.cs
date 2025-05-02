@@ -16,6 +16,8 @@ public class BattleManager : MonoBehaviour
 
      public BattleState currentState;
 
+     public BattleUIManager battleUI;
+
      // Reference to the battle positions
      public Transform[] playerPositions;
      public Transform[] enemyPositions;
@@ -46,37 +48,42 @@ public class BattleManager : MonoBehaviour
                turnOrderSystem = GetComponent<TurnOrderSystem>();
           }
 
+          if (battleUI == null)
+          {
+               battleUI = FindFirstObjectByType<BattleUIManager>();
+          }
+
           StartCoroutine(SetupBattle());
      }
 
      IEnumerator SetupBattle()
      {
-          float startTime = Time.realtimeSinceStartup;
+
           Debug.Log("Battle starting!");
-
           CreateAllCharacters();
-          Debug.Log($"Character creation took: {Time.realtimeSinceStartup - startTime} seconds");
 
-          startTime = Time.realtimeSinceStartup;
+          //Initialize UI
+          battleUI.InitializeUI(allBattleCharacters);
+
           Debug.Log("Initializing turn order...");
-
           turnOrderSystem.InitializeTurnOrder(allBattleCharacters);
-          Debug.Log($"Turn order initialization took: {Time.realtimeSinceStartup - startTime} seconds");
 
           //Force first turn
           turnOrderSystem.ForceFirstTurn();
 
+          //Get turn order for UI
+          List<BattleCharacter> turnOrder = turnOrderSystem.GetTurnOrder();
+          battleUI.UpdateTurnOrderDisplay(turnOrder);
+
           currentState = BattleState.PlayerTurn;
           ProcessTurns();
 
-          //Debug Monitor how long until first turn appears
-          startTime = Time.realtimeSinceStartup;
-          yield return null; 
-          Debug.Log($"Time between battle setup and first frame: {Time.realtimeSinceStartup - startTime}");
+          yield return null;
+
 
      }
 
-     
+
      private void CreateAllCharacters()
      {
           // Clear any existing characters
@@ -206,42 +213,46 @@ public class BattleManager : MonoBehaviour
      // Show UI for player actions
      void ShowPlayerActions(BattleCharacter character)
      {
-          // Enable and display the action buttons for this character
-          Debug.Log($"{character.characterName}'s turn. Select an action.");
+          battleUI.ShowCommandPanel(character);
      }
 
      // Process enemy turn
      IEnumerator ProcessEnemyTurn(BattleCharacter enemy)
      {
-          Debug.Log($"{enemy.characterName} is taking their turn.");
+          yield return StartCoroutine(battleUI.ShowBattleMessage($"{enemy.characterName}'s turn"));
 
           // Simple AI logic would go here
-          yield return new WaitForSeconds(1.5f);
+          yield return new WaitForSeconds(1.0f);
 
           // Perform a mock attack on a random player
           BattleCharacter target = GetRandomPlayerCharacter();
           if (target != null)
           {
-               Debug.Log($"{enemy.characterName} attacks {target.characterName}!");
+               yield return StartCoroutine(battleUI.ShowBattleMessage($"{enemy.characterName} attacks {target.characterName}"));
 
                // Simulate damage
                int damage = enemy.CalculatePhysicalDamage(10, target);
                target.TakeDamage(damage);
 
-               Debug.Log($"{target.characterName} takes {damage} damage! HP: {target.currentHP}/{target.maxHP}");
+               yield return StartCoroutine(battleUI.ShowBattleMessage($"{target.characterName} takes {damage} damage"));
+
+               //Update UI
+               battleUI.UpdateUI(allBattleCharacters);
 
                // Check for defeat
                if (target.IsDead())
                {
-                    Debug.Log($"{target.characterName} has been defeated!");
+                    yield return StartCoroutine(battleUI.ShowBattleMessage($"{target.characterName} has been defeated"));
                     // TODO: Handle character defeat visually
                }
-
-               yield return new WaitForSeconds(1.0f);
           }
 
           // Turn completed, reset current actor
           currentActor = null;
+
+          // Update turn order display
+          List<BattleCharacter> turnOrder = turnOrderSystem.GetTurnOrder();
+          battleUI.UpdateTurnOrderDisplay(turnOrder);
 
           // Check victory/defeat conditions
           CheckBattleEndConditions();
@@ -304,10 +315,61 @@ public class BattleManager : MonoBehaviour
      {
           if (currentActor == null || !currentActor.isPlayerCharacter) return;
 
-          // Process the selected action
-          Debug.Log($"Player selected: {actionType}");
+          switch (actionType)
+          {
+               case "Attack":
+                    // Show enemy target selection
+                    List<BattleCharacter> enemyTargets = GetEnemyTargets();
+                    battleUI.ShowTargetSelection(enemyTargets, (target) =>
+                    {
+                         StartCoroutine(PerformPlayerAttack(target));
+                    });
+                    break;
 
-          StartCoroutine(ProcessPlayerAction(actionType));
+               case "Skill":
+                    // This would show skill selection, then target selection
+                    // For now, just hide the command panel
+                    battleUI.HideCommandPanel();
+                    break;
+
+               case "Item":
+                    // This would show item selection, then target selection
+                    // For now, just hide the command panel
+                    battleUI.HideCommandPanel();
+                    break;
+
+               case "Defend":
+                    StartCoroutine(PerformPlayerDefend());
+                    break;
+
+               case "Echoes":
+                    if (currentActor.CanTransform())
+                    {
+                         StartCoroutine(PerformPlayerEchoesTransformation());
+                    }
+                    else
+                    {
+                         StartCoroutine(battleUI.ShowBattleMessage("Not enough Echoes energy"));
+                         battleUI.ShowCommandPanel(currentActor); // Show commands again
+                    }
+                    break;
+          }
+     }
+
+     // Get all valid enemy targets
+     private List<BattleCharacter> GetEnemyTargets()
+     {
+          List<BattleCharacter> targets = new List<BattleCharacter>();
+
+          foreach (BattleCharacter character in allBattleCharacters)
+          {
+               if (!character.isPlayerCharacter && !character.IsDead())
+               {
+                    targets.Add(character);
+               }
+          }
+
+          return targets;
      }
 
      // Process player action
@@ -366,4 +428,115 @@ public class BattleManager : MonoBehaviour
 
           return null;
      }
+
+     private IEnumerator PerformPlayerAttack(BattleCharacter target)
+     {
+          yield return StartCoroutine(battleUI.ShowBattleMessage($"{currentActor.characterName} attacks {target.characterName}"));
+
+          // Get current addition
+          Addition currentAddition = currentActor.availableAdditions[currentActor.currentAdditionIndex];
+
+          // Show addition sequence
+          int successfulHits = 0;
+          yield return StartCoroutine(battleUI.ShowAdditionSequence(currentAddition, (hits) =>
+          {
+               successfulHits = hits;
+          }));
+
+          // Calculate damage based on addition success
+          float damageMultiplier = currentAddition.GetDamageMultiplier(successfulHits);
+          int baseDamage = 10; // Base attack damage
+          int damage = Mathf.RoundToInt(currentActor.CalculatePhysicalDamage(baseDamage, target) * damageMultiplier);
+
+          // Apply damage
+          target.TakeDamage(damage);
+
+          // Show results
+          if (successfulHits == currentAddition.hitCount)
+          {
+               yield return StartCoroutine(battleUI.ShowBattleMessage("Perfect combo! " + damage + " damage"));
+
+               // Add mastery XP for perfect execution
+               currentAddition.AddMasteryXP(currentAddition.masteryXPForFullCombo);
+          }
+          else if (successfulHits > 0)
+          {
+               yield return StartCoroutine(battleUI.ShowBattleMessage($"Combo! {successfulHits} hits for {damage} damage"));
+
+               // Add some mastery XP
+               currentAddition.AddMasteryXP(successfulHits * currentAddition.masteryXPForHit);
+          }
+          else
+          {
+               yield return StartCoroutine(battleUI.ShowBattleMessage($"Attack for {damage} damage"));
+          }
+
+          // Update UI
+          battleUI.UpdateUI(allBattleCharacters);
+
+          // Check for defeat
+          if (target.IsDead())
+          {
+               yield return StartCoroutine(battleUI.ShowBattleMessage($"{target.characterName} has been defeated"));
+          }
+
+          // Turn completed, reset current actor
+          currentActor = null;
+
+          // Update turn order display
+          List<BattleCharacter> turnOrder = turnOrderSystem.GetTurnOrder();
+          battleUI.UpdateTurnOrderDisplay(turnOrder);
+
+          // Check victory/defeat conditions
+          CheckBattleEndConditions();
+     }
+
+     private IEnumerator PerformPlayerDefend()
+     {
+          yield return StartCoroutine(battleUI.ShowBattleMessage($"{currentActor.characterName} defends"));
+
+          // Apply defend status effect
+          StatusEffect defendEffect = new StatusEffect
+          {
+               name = "Defend",
+               description = "Increased defense",
+               type = StatusEffect.EffectType.Defense,
+               isPositive = true,
+               turnsRemaining = 1,
+               flatValueChange = Mathf.RoundToInt(currentActor.defense * 0.5f) // 50% defense boost
+          };
+
+          currentActor.AddStatusEffect(defendEffect);
+
+          // Update UI
+          battleUI.UpdateUI(allBattleCharacters);
+
+          // Turn completed, reset current actor
+          currentActor = null;
+
+          // Update turn order display
+          List<BattleCharacter> turnOrder = turnOrderSystem.GetTurnOrder();
+          battleUI.UpdateTurnOrderDisplay(turnOrder);
+     }
+
+     // Add this method for Echoes transformation
+     private IEnumerator PerformPlayerEchoesTransformation()
+     {
+          yield return StartCoroutine(battleUI.ShowBattleMessage($"{currentActor.characterName} transforms into Echoes form"));
+
+          // Transform character
+          currentActor.TransformToEchoesForm();
+
+          // Update UI
+          battleUI.UpdateUI(allBattleCharacters);
+
+          // Turn completed, reset current actor
+          currentActor = null;
+
+          // Update turn order display
+          List<BattleCharacter> turnOrder = turnOrderSystem.GetTurnOrder();
+          battleUI.UpdateTurnOrderDisplay(turnOrder);
+     }
+
+
 }

@@ -26,7 +26,6 @@ public class TurnOrderSystem : MonoBehaviour
     private float atbFillSpeedMultiplier = 5f;
 
     // Initialize system with characters
-    // Update this method in your TurnOrderSystem.cs
     public void InitializeTurnOrder(List<BattleCharacter> characters)
     {
         // Clear previous data - keep this as is
@@ -196,5 +195,39 @@ public class TurnOrderSystem : MonoBehaviour
             }
 
         }
+    }
+    public List<BattleCharacter> GetTurnOrder()
+    {
+        List<BattleCharacter> order = new List<BattleCharacter>(turnQueue);
+
+        // If we need more characters for prediction
+        if (order.Count < 5)
+        {
+            // Create a list for sorting predictions
+            List<KeyValuePair<BattleCharacter, float>> predictions = new List<KeyValuePair<BattleCharacter, float>>();
+
+            // Add characters not in queue
+            foreach (var character in allCharacters)
+            {
+                if (!character.IsDead() && !turnQueue.Contains(character))
+                {
+                    predictions.Add(new KeyValuePair<BattleCharacter, float>(character, atbValues[character]));
+                }
+            }
+
+            // Sort by ATB value (descending)
+            predictions.Sort((a, b) => b.Value.CompareTo(a.Value));
+
+            // Add to order list
+            foreach (var prediction in predictions)
+            {
+                order.Add(prediction.Key);
+
+                if (order.Count >= 5)
+                    break;
+            }
+        }
+
+        return order;
     }
 }

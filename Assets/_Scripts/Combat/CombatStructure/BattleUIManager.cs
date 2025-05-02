@@ -52,7 +52,7 @@ public class BattleUIManager : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
-        battleManager = FindObjectOfType<BattleManager>();
+        battleManager = FindFirstObjectByType<BattleManager>();
         
         // Set up button listeners
         attackButton.onClick.AddListener(() => OnAttackButton());
